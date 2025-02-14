@@ -42,11 +42,130 @@ data <- data %>%
 bl_data <- bl_data %>% 
   filter(started_tx == 1)
 
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(kableExtra)
 
+# Summarize demographic data
+demo_summary <- bl_data %>%
+  group_by(panic_pkg) %>%
+  summarise(
+    N = n(),
+    mean_age = mean(age, na.rm = TRUE),
+    sd_age = sd(age, na.rm = TRUE),
+    n_male = sum(gender == "Male", na.rm = TRUE),
+    n_female = sum(gender == "Female", na.rm = TRUE),
+    n_transgender = sum(gender == "Transgender", na.rm = TRUE),
+    n_other_gender = sum(gender == "Do not identify as male, female or transgender", na.rm = TRUE),
+    n_prefer_not_gender = sum(gender == "Prefer not to answer", na.rm = TRUE),
+    n_white = sum(race == "White", na.rm = TRUE),
+    n_black = sum(race == "Black or African American", na.rm = TRUE),
+    n_asian = sum(race == "Asian", na.rm = TRUE),
+    n_native = sum(race == "American Indian or Alaska Native", na.rm = TRUE),
+    n_pacific_islander = sum(race == "Native Hawaiian or Other Pacific Islander", na.rm = TRUE),
+    n_multiracial = sum(race == "More than one race", na.rm = TRUE),
+    n_other_race = sum(race == "Other", na.rm = TRUE),
+    n_hispanic = sum(ethnicity == "Hispanic/Latino", na.rm = TRUE),
+    n_non_hispanic = sum(ethnicity == "Not Hispanic/Latino", na.rm = TRUE),
+    .groups = "drop"
+  )
 
+# Reshape and format the summary
+demo_summary_formatted <- demo_summary %>%
+  mutate(
+    group = ifelse(panic_pkg == 1, "Panic", "Other"),
+    age = sprintf("%.2f (%.2f)", mean_age, sd_age),
+    male = sprintf("%d (%.2f%%)", n_male, n_male / N * 100),
+    female = sprintf("%d (%.2f%%)", n_female, n_female / N * 100),
+    transgender = sprintf("%d (%.2f%%)", n_transgender, n_transgender / N * 100),
+    other_gender = sprintf("%d (%.2f%%)", n_other_gender, n_other_gender / N * 100),
+    prefer_not_gender = sprintf("%d (%.2f%%)", n_prefer_not_gender, n_prefer_not_gender / N * 100),
+    white = sprintf("%d (%.2f%%)", n_white, n_white / N * 100),
+    black = sprintf("%d (%.2f%%)", n_black, n_black / N * 100),
+    asian = sprintf("%d (%.2f%%)", n_asian, n_asian / N * 100),
+    native = sprintf("%d (%.2f%%)", n_native, n_native / N * 100),
+    pacific_islander = sprintf("%d (%.2f%%)", n_pacific_islander, n_pacific_islander / N * 100),
+    multiracial = sprintf("%d (%.2f%%)", n_multiracial, n_multiracial / N * 100),
+    other_race = sprintf("%d (%.2f%%)", n_other_race, n_other_race / N * 100),
+    hispanic = sprintf("%d (%.2f%%)", n_hispanic, n_hispanic / N * 100),
+    non_hispanic = sprintf("%d (%.2f%%)", n_non_hispanic, n_non_hispanic / N * 100)
+  ) %>%
+  select(group, age, male, female, transgender, other_gender, prefer_not_gender,
+         white, black, asian, native, pacific_islander, multiracial, other_race,
+         hispanic, non_hispanic) %>%
+  pivot_longer(-group, names_to = "Measure", values_to = "Value") %>%
+  pivot_wider(names_from = group, values_from = Value)
 
+# Create and display the table
+demo_table <- demo_summary_formatted %>%
+  kbl(col.names = c("Measure", "Panic (N=13)", "Other (N=38)"), align = "lcc") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
 
+# Print the table
+print(demo_table)
 
+## Clinical Characteristics at Baseline
+clinical_summary <- bl_data %>%
+  group_by(panic_pkg) %>%
+  summarise(
+    N = n(),
+    
+    # Mean and SD of n_disorders_above_threshold
+    mean_n_disorders = mean(n_disorders_above_thresh_bl, na.rm = TRUE),
+    sd_n_disorders = sd(n_disorders_above_thresh_bl, na.rm = TRUE),
+    
+    # Mean and SD of total_modules_completed
+    mean_total_modules = mean(total_modules, na.rm = TRUE),
+    sd_total_modules = sd(total_modules, na.rm = TRUE),
+    
+    # Mean and SD of cnt_coach_session
+    mean_coaching_sess = mean(cnt_coach_sessions, na.rm = TRUE),
+    sd_coaching_sess = sd(cnt_coach_sessions, na.rm = TRUE),
+    
+    # Mean and SD of pdss_total
+    mean_pdss_total = mean(pdss_total_bl, na.rm = TRUE),
+    sd_pdss_total = sd(pdss_total_bl, na.rm = TRUE),
+    
+    .groups = "drop"
+  ) %>%
+  pivot_longer(cols = -panic_pkg, names_to = "Measure", values_to = "Value") %>%
+  mutate(
+    panic_pkg = case_when(
+      panic_pkg == 1 ~ "Panic",
+      panic_pkg == 0 ~ "Other",
+      TRUE ~ as.character(panic_pkg)
+    )
+  ) %>%
+  pivot_wider(names_from = panic_pkg, values_from = Value)
+
+# Merge Mean and SD into M(SD) format while avoiding NAs
+clinical_summary_formatted <- clinical_summary %>%
+  arrange(Measure) %>%
+  mutate(
+    `Panic (N=13)` = case_when(
+      grepl("mean_", Measure) ~ sprintf("%.2f (%.2f)", `Panic`, lead(`Panic`)),  # Use lead() instead of match()
+      TRUE ~ as.character(`Panic`)
+    ),
+    `Other (N=38)` = case_when(
+      grepl("mean_", Measure) ~ sprintf("%.2f (%.2f)", `Other`, lead(`Other`)),
+      TRUE ~ as.character(`Other`)
+    )
+  ) %>%
+  select(Measure, `Panic (N=13)`, `Other (N=38)`) %>%
+  filter(!grepl("^sd_", Measure))  # Remove SD rows (now in M(SD))
+
+# ==== Create Formatted Table ====
+clinical_table <- clinical_summary_formatted %>%
+  kable(format = "html", align = "c",
+        col.names = c("Measure", "Panic (N=13)", "Other (N=38)"),
+        caption = "Clinical Summary") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+# Display in R console and save as an HTML file
+print(clinical_table)
+writeLines(clinical_table, "clinical_summary_table.html")
+browseURL("clinical_summary_table.html")
 
 
 
@@ -57,8 +176,10 @@ data_summary <- data %>%
   group_by(study_id_mspss) %>%  # Group by unique participant ID
   summarise(
     total_pdss_obs = sum(!is.na(pdss_total)), # Count non-missing PDSS observations
-    panic_pkg = first(panic_pkg) # Keep treatment group for filtering
+    panic_pkg = first(panic_pkg), # Keep treatment group for filtering
+    started_tx = first(started_tx)
   ) %>%
+  filter(started_tx == 1) %>% 
   ungroup()
 
 # mean and SD
@@ -610,5 +731,5 @@ qgraph(net3,
 par(mar = c(0, 0, 0, 0))
 plot.new()
 
-write.csv(demo_summary_vertical, "demographics.csv", row.names = F)
-write.csv(clinical_summary_vertical, "bl_clinical.csv", row.names = F)
+write.csv(demo_summary_formatted, "demographics.csv", row.names = F)
+write.csv(clinical_summary_formatted, "bl_clinical.csv", row.names = F)
