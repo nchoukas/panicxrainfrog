@@ -1,0 +1,1007 @@
+---
+title: "Panic x RF Preliminary Analyses"
+output: pdf_document
+date: "2025-02-06"
+always_allow_html: true
+---
+
+PDSS TOTAL VAR IS WRONG!
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,       # Hide code
+  warning = FALSE,    # Suppress warnings
+  message = FALSE     # Suppress messages
+)
+```
+
+
+
+```{r}
+# load libraries
+library(here)
+library(qgraph)
+library(bootnet)
+library(mlVAR)
+library(psychonetrics)
+library(kableExtra)
+library(tidyverse)
+library(ggplot2)
+
+```
+
+
+```{r}
+# source data cleaning
+source('/Users/natechoukas/Documents/Research/Panic Model x RainFrog/Code/panic_alac_data_cleaning.R')
+```
+
+
+# I. Sample Characteristics
+Include individuals with above threshold panic or agoraphobia (e.g., participants who met threshold for the panic tx package)
+
+## Demographics
+
+```{r}
+# demo summary table
+demo_summary <- bl_data_panic_agoraphobia %>%
+  group_by(panic_pkg) %>%
+  summarise(
+    N = n(),
+    
+    # Mean and SD of Age
+    mean_age = mean(age, na.rm = TRUE),
+    sd_age = sd(age, na.rm = TRUE),
+    
+    # Gender Counts and Percentages
+    n_male = sum(gender == "Male", na.rm = TRUE),
+    perc_male = sum(gender == "Male", na.rm = TRUE) / n() * 100,
+    
+    n_female = sum(gender == "Female", na.rm = TRUE),
+    perc_female = sum(gender == "Female", na.rm = TRUE) / n() * 100,
+    
+    n_transgender = sum(gender == "Transgender", na.rm = TRUE),
+    perc_transgender = sum(gender == "Transgender", na.rm = TRUE) / n() * 100,
+    
+    n_other_gender = sum(gender == "Do not identify as male, female or transgender", na.rm = TRUE),
+    perc_other_gender = sum(gender == "Do not identify as male, female or transgender", na.rm = TRUE) / n() * 100,
+    
+    n_prefer_not_gender = sum(gender == "Prefer not to answer", na.rm = TRUE),
+    perc_prefer_not_gender = sum(gender == "Prefer not to answer", na.rm = TRUE) / n() * 100,
+    
+    # Race Counts and Percentages
+    n_white = sum(race == "White", na.rm = TRUE),
+    perc_white = sum(race == "White", na.rm = TRUE) / n() * 100,
+    
+    n_black = sum(race == "Black or African American", na.rm = TRUE),
+    perc_black = sum(race == "Black or African American", na.rm = TRUE) / n() * 100,
+    
+    n_asian = sum(race == "Asian", na.rm = TRUE),
+    perc_asian = sum(race == "Asian", na.rm = TRUE) / n() * 100,
+    
+    n_native = sum(race == "American Indian or Alaska Native", na.rm = TRUE),
+    perc_native = sum(race == "American Indian or Alaska Native", na.rm = TRUE) / n() * 100,
+    
+    n_pacific_islander = sum(race == "Native Hawaiian or Other Pacific Islander", na.rm = TRUE),
+    perc_pacific_islander = sum(race == "Native Hawaiian or Other Pacific Islander", na.rm = TRUE) / n() * 100,
+    
+    n_multiracial = sum(race == "More than one race", na.rm = TRUE),
+    perc_multiracial = sum(race == "More than one race", na.rm = TRUE) / n() * 100,
+    
+    n_other_race = sum(race == "Other", na.rm = TRUE),
+    perc_other_race = sum(race == "Other", na.rm = TRUE) / n() * 100,
+    
+    # Ethnicity Counts and Percentages
+    n_hispanic = sum(ethnicity == "Hispanic/Latino", na.rm = TRUE),
+    perc_hispanic = sum(ethnicity == "Hispanic/Latino", na.rm = TRUE) / n() * 100,
+    
+    n_non_hispanic = sum(ethnicity == "Not Hispanic/Latino", na.rm = TRUE),
+    perc_non_hispanic = sum(ethnicity == "Not Hispanic/Latino", na.rm = TRUE) / n() * 100,
+    
+    .groups = "drop"
+  )
+
+# Convert the demographics table to a vertical format
+demo_summary_vertical <- demo_summary %>%
+  pivot_longer(
+    cols = -panic_pkg, 
+    names_to = "Measure", 
+    values_to = "Value"
+  ) %>%
+  mutate(
+    panic_pkg = case_when(
+      panic_pkg == 1 ~ "Panic",
+      panic_pkg == 0 ~ "Other",
+      TRUE ~ as.character(panic_pkg)
+    )
+  ) %>%
+  pivot_wider(
+    names_from = panic_pkg, 
+    values_from = Value
+  )
+
+# Format the table for LaTeX
+demo_summary_vertical %>%
+  rename(
+    `Demographic Measure` = Measure
+  ) %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    caption = "Table 1: Demographic Characteristics",
+    align = "c"
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position", "scale_down"),
+    full_width = FALSE,
+    position = "center"
+  ) %>%
+  add_header_above(c(" " = 1, "Treatment Group" = 2))  # 1 column for measures, 2 for groups
+
+
+
+```
+
+
+## Clinical Characteristics at Baseline
+
+```{r}
+
+# clinical summary
+clinical_summary <- bl_data_panic_agoraphobia %>%
+  group_by(panic_pkg) %>%
+  summarise(
+    N = n(),
+    
+    # Mean and SD of n_disorders_above_threshold
+    mean_n_disorders = mean(n_disorders_above_thresh_bl, na.rm = TRUE),
+    sd_n_disorders = sd(n_disorders_above_thresh_bl, na.rm = TRUE),
+    
+    # Mean and SD of total_modules_completed
+    mean_total_modules = mean(total_modules, na.rm = TRUE),
+    sd_total_modules = sd(total_modules, na.rm = TRUE),
+    
+    # Mean and SD of cnt_coach_session
+    mean_coaching_sess = mean(cnt_coach_sessions, na.rm = TRUE),
+    sd_coaching_sess = sd(cnt_coach_sessions, na.rm = TRUE),
+    
+    # Mean and SD of pdss_total
+    mean_pdss_total = mean(pdss_total_bl, na.rm = TRUE),
+    sd_pdss_total = sd(pdss_total_bl, na.rm = TRUE)
+  )
+
+# Reshape the clinical summary to a vertical format
+clinical_summary_vertical <- clinical_summary %>%
+  pivot_longer(
+    cols = -panic_pkg, 
+    names_to = "Measure", 
+    values_to = "Value"
+  ) %>%
+  mutate(
+    panic_pkg = case_when(
+      panic_pkg == 1 ~ "Panic",
+      panic_pkg == 0 ~ "Other",
+      TRUE ~ as.character(panic_pkg)
+    )
+  ) %>%
+  pivot_wider(
+    names_from = panic_pkg, 
+    values_from = Value
+  )
+
+# Format the table for LaTeX
+clinical_summary_vertical %>%
+  rename(
+    `Clinical Measure` = Measure
+  ) %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    caption = "Table 2: Clinical Characteristics at Baseline",
+    align = "c"
+  ) %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position", "scale_down"),
+    full_width = FALSE,
+    position = "center"
+  ) %>%
+  add_header_above(c(" " = 1, "Treatment Group" = 2))  # 1 column for measures, 2 for groups
+
+```
+
+
+## Exploring Number of PDSS observations
+
+```{r}
+
+# number of pdss observations by tx group
+pdss_obs_summary <- data_panic_agoraphobia %>% 
+  group_by(panic_pkg) %>% 
+  summarise(
+    N = n(),
+    mean_pdss_obs = mean(pdss_total, na.rm = TRUE),
+    sd_pdss_obs = sd(pdss_total, na.rm = TRUE)
+  )
+
+# distribution (panic tx group)
+pdss_obs_panic_pkg <- data_panic_agoraphobia %>%
+  filter(panic_pkg == 1)
+
+ggplot(pdss_obs_panic_pkg, aes(x = pdss_total)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  scale_x_continuous(
+        breaks = seq(0, 21, by = 1)) +
+  coord_cartesian(xlim = c(0, 21)) +  
+  labs(
+    title = "Distribution of PDSS Total Scores (Panic Package Group)",
+    x = "PDSS Total Score",
+    y = "Number of Participants"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# distribution (other tx group)
+pdss_obs_oth_pkg <- data %>%
+  filter(panic_pkg == 0)
+
+ggplot(pdss_obs_oth_pkg, aes(x = pdss_total)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  scale_x_continuous(
+        breaks = seq(0, 21, by = 1)) +
+  coord_cartesian(xlim = c(0, 21)) +  
+  labs(
+    title = "Distribution of PDSS Total Scores (Other Package Group)",
+    x = "PDSS Total Score",
+    y = "Number of Participants"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```
+
+## Symptom Trajectory Plots
+
+PDSS symptom trajectories by treatment group, acute treatment phase (Weeks 0-16)
+
+```{r}
+panic_data_tx_phase <- data_panic_agoraphobia %>% filter(week < 17)
+
+ggplot(panic_data_tx_phase, aes(x = week, y = pdss_total, color = factor(panic_pkg))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(title = "PDSS Total Over Time by Treatment Group",
+       x = "Weeks", y = "PDSS Total", color = "Panic Treatment") +
+  theme_minimal()
+
+```
+
+PDSS symptom trajectories by treatment group, weeks 0-40.
+
+```{r}
+ggplot(data_panic_agoraphobia, aes(x = week, y = pdss_total, color = factor(panic_pkg))) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(title = "PDSS Total Over Time by Treatment Group",
+       x = "Weeks", y = "PDSS Total", color = "Panic Treatment") +
+  theme_minimal()
+```
+
+Visualize Module Completion 
+
+```{r}
+# total modules modules (panic tx)
+bl_data_panix_tx <- bl_data %>% filter(panic_pkg == 1)
+
+# Automatically determine the x-axis range
+x_limits_panic <- as.character(seq(min(bl_data_panix_tx$total_modules, na.rm = TRUE), 
+                                   max(bl_data_panix_tx$total_modules, na.rm = TRUE)))
+
+# Compute mean
+mean_modules_completed_panic <- mean(bl_data_panix_tx$total_modules, na.rm = TRUE)
+
+# Plot
+ggplot(bl_data_panix_tx, aes(x = factor(total_modules))) +
+  geom_bar(fill = "navy", color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 8) +  
+  labs(title = "Total Modules Completed (Panic Treatment)",
+       x = "Modules",
+       y = "Participants") +
+  scale_x_discrete(limits = x_limits_panic) + 
+  ylim(0, 25) +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    plot.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 18)
+  ) +
+  annotate(
+    "text",
+    x = 7,
+    y = 24,
+    label = paste0("M=", round(mean_modules_completed_panic, 2)),
+    size = 6,
+    color = "black"
+  )
+
+
+# Filter for other treatment
+bl_data_oth_tx <- bl_data %>% filter(panic_pkg == 0)
+
+# Automatically determine the x-axis range based on the unique values present
+x_limits_oth <- sort(unique(bl_data_oth_tx$total_modules))
+
+# Compute mean
+mean_modules_completed_oth <- mean(bl_data_oth_tx$total_modules, na.rm = TRUE)
+
+# Plot
+ggplot(bl_data_oth_tx, aes(x = factor(total_modules))) +
+  geom_bar(fill = "firebrick3", color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 8) +  
+  labs(title = "Total Modules Completed (Other Treatment)",
+       x = "Modules",
+       y = "Participants") +
+  scale_x_discrete(limits = as.character(x_limits_oth)) + 
+  ylim(0, 25) +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    plot.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 18)
+  ) +
+  annotate(
+    "text",
+    x = 9,
+    y = 24,
+    label = paste0("M=", round(mean_modules_completed_oth, 2)),
+    size = 6,
+    color = "black"
+  )
+
+
+```
+
+Visualize Coaching Session Attendance
+
+```{r}
+# total coaching sessions (panic tx)
+mean_coach_sess_panic <- mean(bl_data_panix_tx$cnt_coach_sessions, na.rm = TRUE)
+
+ggplot(bl_data_panix_tx, aes(x = cnt_coach_sessions)) +
+  geom_bar(fill = "navy", color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 8) +  # Add count labels
+  labs(title = "Total Coaching Sessions",
+       x = "Coaching Sessions",
+       y = "Participants") +
+  scale_x_discrete(limits = as.character(0:6)) +
+  ylim(0, 25) +
+  theme(
+    axis.title.x = element_text(size = 20),    # Increase x-axis label size
+    axis.title.y = element_text(size = 20),    # Increase y-axis label size
+    axis.text.x = element_text(size = 16),     # Increase x-axis text size
+    axis.text.y = element_text(size = 16),     # Increase y-axis text size
+    plot.title = element_text(size = 20),      # Increase title size
+    legend.text = element_text(size = 16),     # Increase legend text size (if applicable)
+    legend.title = element_text(size = 18)     # Increase legend title size (if applicable)
+  ) +
+  # Add mean labels
+  annotate(
+    "text",
+    x = 7,  # Adjust x to position the mean label (center of the graph)
+    y = 24, # Adjust y to place it above the bars
+    label = paste0("M=", round(mean_coach_sess_panic, 2)),
+    size = 6,
+    color = "black"
+  )
+
+
+# total modules modules (other tx)
+mean_coach_sess_oth <- mean(bl_data_oth_tx$cnt_coach_sessions, na.rm = TRUE)
+
+ggplot(bl_data_oth_tx, aes(x = factor(cnt_coach_sessions))) +
+  geom_bar(fill = "firebrick3", color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 8) +  # Add count labels
+  labs(title = "Total Coaching Sessions",
+       x = "Coaching Sessions",
+       y = "Participants") +
+  scale_x_discrete(limits = as.character(0:9)) +
+  ylim(0, 30) +
+  theme(
+    axis.title.x = element_text(size = 20),    # Increase x-axis label size
+    axis.title.y = element_text(size = 20),    # Increase y-axis label size
+    axis.text.x = element_text(size = 16),     # Increase x-axis text size
+    axis.text.y = element_text(size = 16),     # Increase y-axis text size
+    plot.title = element_text(size = 20),      # Increase title size
+    legend.text = element_text(size = 16),     # Increase legend text size (if applicable)
+    legend.title = element_text(size = 18)     # Increase legend title size (if applicable)
+  ) +
+  # Add mean labels
+  annotate(
+    "text",
+    x = 9,  # Adjust x to position the mean label (center of the graph)
+    y = 30, # Adjust y to place it above the bars
+    label = paste0("M=", round(mean_coach_sess_oth, 2)),
+    size = 6,
+    color = "black"
+  )
+
+```
+
+
+PDSS symptoms at baseline - GGM 
+
+```{r}
+# bl contemporaneous network model 
+bl_pdss <- bl_data_panic_agoraphobia %>% 
+  filter(week == 0) %>% 
+  select(
+    study_id_mspss,
+    pdss_q1_bl,
+    pdss_q2_bl,
+    pdss_q3_bl,
+    pdss_q4_bl,
+    pdss_q5_bl,
+    pdss_q6_bl,
+    pdss_q7_bl
+  ) %>% 
+  rename(
+    p1 = pdss_q1_bl,
+    p2 = pdss_q2_bl,
+    p3 = pdss_q3_bl,
+    p4 = pdss_q4_bl,
+    p5 = pdss_q5_bl,
+    p6 = pdss_q6_bl,
+    p7 = pdss_q7_bl,
+  ) %>% 
+  na.omit()
+
+obsvars <- c(
+  "p1",
+  "p2",
+  "p3",
+  "p4",
+  "p5",
+  "p6",
+  "p7"
+)
+
+# form GGM modle
+ggm1 <- ggm(bl_pdss, vars = obsvars)
+
+ggm1 <- ggm1 %>% runmodel # run model
+
+ggm1 %>% parameters # check parameters
+
+# prune to significant edges
+ggm1 <- ggm1 %>% 
+  prune(adjust = "fdr", alpha = 0.01)
+
+# check modification indices:
+ggm1 %>% MIs
+
+# stepup estimation:
+ggm1 <- ggm1 %>% stepup(criterion = "bic", alpha = 0.05)
+
+# inspect fit
+ggm1 %>% fit
+
+# obtain network
+net1 <- getmatrix(ggm1, "omega")
+
+# Plot:
+layout(matrix(c(1, 2), nrow = 2), heights = c(7, 2))  # 2 rows: plot (7) and legend (2)
+
+qgraph(net1,  
+       layout = "spring",  
+       theme = "colorblind", 
+       labels = obsvars)  
+
+par(mar = c(0, 0, 0, 0))
+plot.new()
+
+legend("left", 
+       legend = c(
+         "p1 = Frequency of panic attacks during past week",
+         "p2 = Distress during panic attacks",
+         "p3 = Anxiety about future attacks",
+         "p4 = Avoidance of places/situations associated with panic attacks",
+         "p5 = Avoidance of physical sensations associated with panic attacks",
+         "p6 = Interference with daily life",
+         "p7 = Interference with social life"
+       ),
+       cex = 0.6, 
+       bty = "n"
+)
+
+```
+
+# PAI at baseline
+Explore PAI scores at baseline. Note that the PAI was administered twice during Module 1 (psychoeducation about Panic Disorder), once before the module and once after the module.
+
+```{r}
+# filter datasets
+pai_pre <- module_1_data %>%
+  filter(final_package_name == "Panic or Agoraphobia") %>%
+  select(
+    study_id_mspss, 
+    pPAI2_pre_q1_z,
+    pPAI2_pre_q2_z,
+    pPAI2_pre_q3_z,
+    pPAI2_pre_q4_z,
+    pPAI2_pre_q5_z,
+    pPAI2_pre_q6_z,
+    pPAI2_pre_q7_z,
+    pPAI2_pre_q8_z,
+    pPAI2_pre_q9_z,
+    pPAI2_pre_q10_z,
+    pPAI2_pre_q11_z,
+    pPAI2_pre_q12_z,
+    pPAI2_pre_q13_z,
+    pPAI2_pre_q14_z,
+    pPAI2_pre_q15_z
+  ) %>%
+  rename(
+    h.attack = pPAI2_pre_q1_z,
+    faint = pPAI2_pre_q2_z,
+    stroke = pPAI2_pre_q3_z,
+    suffocate = pPAI2_pre_q4_z,
+    die = pPAI2_pre_q5_z,
+    stare = pPAI2_pre_q6_z,
+    laugh = pPAI2_pre_q7_z,
+    embars = pPAI2_pre_q8_z,
+    scene = pPAI2_pre_q9_z,
+    weird = pPAI2_pre_q10_z,
+    insane = pPAI2_pre_q11_z,
+    hyster = pPAI2_pre_q12_z,
+    scream = pPAI2_pre_q13_z,
+    uncnt.sense = pPAI2_pre_q14_z,
+    uncnt.act = pPAI2_pre_q15_z
+  )
+
+pai_post <- module_1_data %>%
+  filter(final_package_name == "Panic or Agoraphobia") %>%
+  select(
+    study_id_mspss,
+    pPAI2_post_q1_z,
+    pPAI2_post_q2_z,
+    pPAI2_post_q3_z,
+    pPAI2_post_q4_z,
+    pPAI2_post_q5_z,
+    pPAI2_post_q6_z,
+    pPAI2_post_q7_z,
+    pPAI2_post_q8_z,
+    pPAI2_post_q9_z,
+    pPAI2_post_q10_z,
+    pPAI2_post_q11_z,
+    pPAI2_post_q12_z,
+    pPAI2_post_q13_z,
+    pPAI2_post_q14_z,
+    pPAI2_post_q15_z
+  ) %>%
+  rename(
+    h.attack = pPAI2_post_q1_z,
+    faint = pPAI2_post_q2_z,
+    stroke = pPAI2_post_q3_z,
+    suffocate = pPAI2_post_q4_z,
+    die = pPAI2_post_q5_z,
+    stare = pPAI2_post_q6_z,
+    laugh = pPAI2_post_q7_z,
+    embars = pPAI2_post_q8_z,
+    scene = pPAI2_post_q9_z,
+    weird = pPAI2_post_q10_z,
+    insane = pPAI2_post_q11_z,
+    hyster = pPAI2_post_q12_z,
+    scream = pPAI2_post_q13_z,
+    uncnt.sense = pPAI2_post_q14_z,
+    uncnt.act = pPAI2_post_q15_z
+  )
+
+# Function to compute means for visualization
+compute_means <- function(data, timepoint) {
+  data %>%
+    select(-study_id_mspss) %>%
+    summarise(across(everything(), ~mean(.x, na.rm = TRUE))) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "mean") %>%
+    mutate(Timepoint = timepoint)
+}
+
+# Compute means separately for pre and post
+pai_pre_means <- compute_means(pai_pre, "PAI Pre-Module")
+pai_post_means <- compute_means(pai_post, "PAI Post-Module")
+
+# Combine both into one dataframe
+pai_means <- bind_rows(pai_pre_means, pai_post_means)
+
+# Bar plot for pre vs post means
+ggplot(pai_means, aes(x = variable, y = mean, fill = Timepoint)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "Comparison of PAI Item Means (Pre vs. Post)",
+       x = "Item",
+       y = "Mean Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("PAI Pre-Module" = "steelblue", "PAI Post-Module" = "darkorange"))
+
+```
+
+# PDSS Network Week 2 (after completing psychoeducation module)
+
+```{r}
+# bl contemporaneous network model 
+pdss_w2 <- data_panic_agoraphobia %>% 
+  filter(week == 2) %>% 
+  select(
+    study_id_mspss,
+    pdss_q1,
+    pdss_q2,
+    pdss_q3,
+    pdss_q4,
+    pdss_q5,
+    pdss_q6,
+    pdss_q7
+  ) %>% 
+  rename(
+    p1 = pdss_q1,
+    p2 = pdss_q2,
+    p3 = pdss_q3,
+    p4 = pdss_q4,
+    p5 = pdss_q5,
+    p6 = pdss_q6,
+    p7 = pdss_q7,
+  ) %>% 
+  na.omit()
+
+obsvars <- c(
+  "p1",
+  "p2",
+  "p3",
+  "p4",
+  "p5",
+  "p6",
+  "p7"
+)
+
+# form GGM modle
+ggm2 <- ggm(pdss_w2, vars = obsvars)
+
+ggm2 <- ggm2 %>% runmodel # run model
+
+ggm2 %>% parameters # check parameters
+
+# prune to significant edges
+ggm2 <- ggm2 %>% 
+  prune(adjust = "fdr", alpha = 0.01)
+
+# check modification indices:
+ggm2 %>% MIs
+
+# stepup estimation:
+ggm2 <- ggm2 %>% stepup(criterion = "bic", alpha = 0.05)
+
+# inspect fit
+ggm2 %>% fit
+
+# obtain network
+net2 <- getmatrix(ggm1, "omega")
+
+# Plot:
+layout(matrix(c(1, 2), nrow = 2), heights = c(7, 2))  # 2 rows: plot (7) and legend (2)
+
+qgraph(net2,  
+       layout = "spring",  
+       theme = "colorblind", 
+       labels = obsvars)  
+
+par(mar = c(0, 0, 0, 0))
+plot.new()
+
+legend("left", 
+       legend = c(
+         "p1 = Frequency of panic attacks during past week",
+         "p2 = Distress during panic attacks",
+         "p3 = Anxiety about future attacks",
+         "p4 = Avoidance of places/situations associated with panic attacks",
+         "p5 = Avoidance of physical sensations associated with panic attacks",
+         "p6 = Interference with daily life",
+         "p7 = Interference with social life"
+       ),
+       cex = 0.6, 
+       bty = "n"
+)
+```
+
+# VAR model PDSS
+
+```{r}
+library(vars)
+
+# subset data
+pdss_long <- data_panic %>% 
+  select(
+    study_id_mspss,
+    week,
+    pdss_q1,
+    pdss_q2,
+    pdss_q3,
+    pdss_q4,
+    pdss_q5,
+    pdss_q6,
+    pdss_q7
+  ) %>% 
+  na.omit()
+
+pdss_long <- pdss_long %>% 
+  group_by(study_id_mspss) %>% 
+  mutate(n_obs = n()) %>% 
+  filter(n_obs > 10) %>% 
+  arrange(study_id_mspss, week) %>% 
+  ungroup()
+
+unique_ids <- unique(pdss_long$study_id_mspss)
+
+temp_model <- pdss_long %>% 
+  filter(study_id_mspss == "alac_0316")
+
+temp_model <- temp_model %>% 
+  select(-study_id_mspss, -week, -n_obs)
+
+data_ts <- as.matrix(temp_model)  # Convert to numeric matrix
+
+var_model <- VAR(data_ts, p = 1, type = "const")
+
+# Extract coefficient matrix
+coef_matrix <- do.call(cbind, lapply(var_model$varresult, coef))
+coef_matrix <- coef_matrix[-1, ]
+
+# Convert to adjacency matrix (set small coefficients to zero for clarity)
+adj_matrix <- ifelse(abs(coef_matrix) > 0.1, coef_matrix, 0)
+
+
+edge_colors <- ifelse(adj_matrix > 0, "blue", "red")
+
+par(mar = c(5, 4, 4, 10))  # Right margin increased to 10
+
+# Create the directed network plot
+qgraph(adj_matrix, 
+       layout = "spring", 
+       directed = TRUE, 
+       labels = colnames(temp_model),  
+       label.cex = 1.2,
+       edge.color = edge_colors,  # Color edges based on sign
+       theme = "gray",
+       title = "VAR Directed Network for ID: alac_0316")
+
+# Add legend outside the plot on the right side
+legend("topright", 
+       inset = c(0, 0),  # Move legend further right
+       legend = c(
+         "pdss_q1 = Frequency of panic attacks during past week",
+         "pdss_q2 = Distress during panic attacks",
+         "pdss_q3 = Anxiety about future attacks",
+         "pdss_q4 = Avoidance of places/situations associated with panic attacks",
+         "pdss_q5 = Avoidance of physical sensations associated with panic attacks",
+         "pdss_q6 = Interference with daily life",
+         "pdss_q7 = Interference with social life"
+       ),
+       col = "black", 
+       cex = 0.4, 
+       bty = "n",   # Remove border
+       xpd = TRUE)  # Allow plotting outside default area
+
+
+
+
+
+```
+
+
+
+
+```{r}
+# define list of pre-vars for network model
+pai_pre_vars <- c(
+  "h.attack",
+  "faint",
+  "stroke",
+  "suffocate",
+  "die",
+  "stare",
+  "laugh",
+  "embars",
+  "scene",
+  "weird",
+  "insane",
+  "hyster",
+  "scream",
+  "uncnt.sense",
+  "uncnt.act"
+)
+
+pai_post_vars <- pai_pre_vars
+
+# form GGM modle
+ggm2 <- ggm(pai_pre, vars = pai_pre_vars)
+
+ggm2 <- ggm2 %>% runmodel # run model
+
+ggm2 %>% parameters # check parameters
+
+# prune to significant edges
+ggm2 <- ggm2 %>% 
+  prune(adjust = "fdr", alpha = 0.01)
+
+# check modification indices:
+ggm2 %>% MIs
+
+# stepup estimation:
+ggm2 <- ggm2 %>% stepup(criterion = "bic", alpha = 0.05)
+
+# inspect fit
+ggm2 %>% fit
+
+# obtain network
+net2 <- getmatrix(ggm2, "omega")
+
+# Plot:
+layout(matrix(c(1, 2), nrow = 2), heights = c(7, 2))  # 2 rows: plot (7) and legend (2)
+
+qgraph(net2,  
+       layout = "spring",  
+       theme = "colorblind", 
+       labels = pai_pre_vars)  
+
+par(mar = c(0, 0, 0, 0))
+plot.new()
+
+# form GGM modle
+ggm3 <- ggm(pai_post, vars = pai_post_vars)
+
+ggm3 <- ggm3 %>% runmodel # run model
+
+ggm3 %>% parameters # check parameters
+
+# prune to significant edges
+ggm3 <- ggm3 %>% 
+  prune(adjust = "fdr", alpha = 0.01)
+
+# check modification indices:
+ggm3 %>% MIs
+
+# stepup estimation:
+ggm3 <- ggm3 %>% stepup(criterion = "bic", alpha = 0.05)
+
+# inspect fit
+ggm3 %>% fit
+
+# obtain network
+net3 <- getmatrix(ggm3, "omega")
+
+# Plot:
+layout(matrix(c(1, 2), nrow = 2), heights = c(7, 2))  # 2 rows: plot (7) and legend (2)
+
+qgraph(net3,  
+       layout = "spring",  
+       theme = "colorblind", 
+       labels = pai_post_vars)  
+
+par(mar = c(0, 0, 0, 0))
+plot.new()
+
+```
+
+# PAI Subscales
+## Prepare data
+
+```{r}
+
+pai_pre_subscales <- pai_pre %>% 
+  mutate(
+    phys = (h.attack + faint + stroke + suffocate + die) / 5,
+    social = (stare + laugh + embars + scene + weird) / 5,
+    control = (insane + hyster + scream + uncnt.sense + uncnt.act) / 5
+  ) %>% 
+  select(study_id_mspss, phys, social, control)
+
+pai_post_subscales <- pai_post %>% 
+  mutate(
+    phys = (h.attack + faint + stroke + suffocate + die) / 5,
+    social = (stare + laugh + embars + scene + weird) / 5,
+    control = (insane + hyster + scream + uncnt.sense + uncnt.act) / 5
+  ) %>% 
+  select(study_id_mspss, phys, social, control)
+
+varlist <- c(
+  "phys",
+  "social",
+  "control"
+)
+
+```
+
+## Pre-Module PAI Subscales GGM
+
+```{r}
+# form GGM modle
+ggm4 <- ggm(pai_pre_subscales, vars = varlist)
+
+ggm4 <- ggm4 %>% runmodel # run model
+
+ggm4 %>% parameters # check parameters
+
+# prune to significant edges
+ggm4 <- ggm4 %>% 
+  prune(adjust = "fdr", alpha = 0.01)
+
+# check modification indices:
+ggm4 %>% MIs
+
+# stepup estimation:
+ggm4 <- ggm4 %>% stepup(criterion = "bic", alpha = 0.05)
+
+# inspect fit
+ggm4 %>% fit
+
+# obtain network
+net4 <- getmatrix(ggm4, "omega")
+
+# Plot:
+layout(matrix(c(1, 2), nrow = 2), heights = c(7, 2))  # 2 rows: plot (7) and legend (2)
+
+qgraph(net4,  
+       layout = "spring",  
+       theme = "colorblind", 
+       labels = varlist)  
+
+par(mar = c(0, 0, 0, 0))
+plot.new()
+
+```
+
+## Post-Module PAI Subscales GGM
+
+```{r}
+# form GGM modle
+ggm5 <- ggm(pai_post_subscales, vars = varlist)
+
+ggm5 <- ggm4 %>% runmodel # run model
+
+ggm5 %>% parameters # check parameters
+
+# prune to significant edges
+ggm5 <- ggm5 %>% 
+  prune(adjust = "fdr", alpha = 0.01)
+
+# check modification indices:
+ggm5 %>% MIs
+
+# stepup estimation:
+ggm5 <- ggm5 %>% stepup(criterion = "bic", alpha = 0.05)
+
+# inspect fit
+ggm5 %>% fit
+
+# obtain network
+net5 <- getmatrix(ggm5, "omega")
+
+# Plot:
+layout(matrix(c(1, 2), nrow = 2), heights = c(7, 2))  # 2 rows: plot (7) and legend (2)
+
+qgraph(net5,  
+       layout = "spring",  
+       theme = "colorblind", 
+       labels = varlist)  
+
+par(mar = c(0, 0, 0, 0))
+plot.new()
+```
+
